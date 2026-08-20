@@ -1,0 +1,51 @@
+[package]
+name = "simporter"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Claim broker for iOS simulators, Android emulators and TCP ports shared by parallel AI agents"
+license = "Unlicense"
+repository = "https://github.com/tjzel/simporter"
+homepage = "https://github.com/tjzel/simporter"
+documentation = "https://github.com/tjzel/simporter#readme"
+readme = "README.md"
+keywords = ["simulator", "emulator", "ports", "lock", "agents"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".tmp/", "RELEASING.md"]
+
+[[bin]]
+name = "simporter"
+path = "src/main.rs"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "allow"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+too_many_lines = "allow"
+struct_excessive_bools = "allow"
+similar_names = "allow"
+struct_field_names = "allow"
