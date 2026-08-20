@@ -2,9 +2,15 @@
 
 ## One-time setup
 
-1. Create the repo and push: `gh repo create tjzel/simporter --public --source . --push`
-2. Get a crates.io token with the `publish-new` and `publish-update` scopes from
-   <https://crates.io/settings/tokens>, then `cargo login`.
+The repo is initialised, committed and pointed at `https://github.com/tjzel/simporter`, which is
+public and still empty. What is left is the first push:
+
+```sh
+git push -u origin main
+```
+
+Then get a crates.io token with the `publish-new` and `publish-update` scopes from
+<https://crates.io/settings/tokens>, and run `cargo login`.
 
 The name `simporter` is unclaimed on crates.io. The first `cargo publish` claims it.
 

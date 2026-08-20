@@ -11,7 +11,7 @@ documentation = "https://github.com/tjzel/simporter#readme"
 readme = "README.md"
 keywords = ["simulator", "emulator", "ports", "lock", "agents"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = [".tmp/", "RELEASING.md"]
+exclude = [".cargo/", ".gitignore", ".tmp/", "RELEASING.md"]
 
 [[bin]]
 name = "simporter"
