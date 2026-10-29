@@ -33,21 +33,27 @@ pub enum Command {
     Gc(OutputArgs),
     /// Check that the tooling this depends on is present
     Doctor(OutputArgs),
-    /// Print the rule that tells every agent to use simporter, or install it
+    /// Print the rule that tells every agent to use simporter, or install it with its skill
     Rule(RuleArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct RuleArgs {
-    /// Write the rule into every installed agent's instruction file
+    /// Write the rule into every installed agent's instruction file and install the skill
     #[arg(long)]
     pub install: bool,
+    /// Print the skill with the full guide instead of the rule
+    #[arg(long, conflicts_with_all = ["install", "dry_run"])]
+    pub skill: bool,
     /// Show what --install would change, without writing
     #[arg(long)]
     pub dry_run: bool,
-    /// Manage exactly this file instead of auto-detecting harnesses, repeatable
+    /// Manage exactly this rule file instead of auto-detecting harnesses, repeatable
     #[arg(long, value_name = "PATH")]
     pub target: Vec<std::path::PathBuf>,
+    /// Install the skill into this skills directory instead of auto-detecting, repeatable
+    #[arg(long, value_name = "DIR")]
+    pub skill_target: Vec<std::path::PathBuf>,
     #[command(flatten)]
     pub output: OutputArgs,
 }

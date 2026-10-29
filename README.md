@@ -146,20 +146,27 @@ tests and dry runs.
 
 ## Telling agents to use it
 
-`simporter rule` prints the rule that instructs any agent to claim before it touches a device or a
-port. `simporter rule --install` writes it into every agent harness it detects: a dedicated file
-where the harness reads a rules directory, and a delimited block inside a shared instructions file
-otherwise, so nothing already in that file is lost. Re-running replaces the block in place.
+`simporter rule` prints a short rule that tells any agent to claim before it touches a device or a
+port. The rule stays loaded at all times. The full guide is a skill that agents load when they
+need it; `simporter rule --skill` prints it.
 
-If you keep your agent configuration in a dotfiles repo, point simporter at the canonical file and
-let your own linker place it:
+`simporter rule --install` writes both into every agent harness it detects. The rule goes into a
+dedicated file where the harness reads a rules directory, and into a delimited block inside a shared
+instructions file otherwise, so nothing already in that file is lost. Re-running replaces the block
+in place. For Claude Code the skill goes into `~/.claude/skills/simporter/SKILL.md`. Other harnesses
+get only the rule; it tells the agent to run `simporter rule --skill` when the skill is missing.
+`--dry-run` lists every rule and skill change without writing.
+
+If you keep your agent configuration in a dotfiles repo, point simporter at the canonical files and
+let your own linker place them:
 
 ```sh
-simporter rule --install --target ~/dotfiles/AGENTS.md
+simporter rule --install --target ~/dotfiles/AGENTS.md --skill-target ~/dotfiles/skills
 ```
 
-`--target` replaces harness detection rather than adding to it. Writes follow symlinks, so a
-managed file that is a link into a dotfiles repo keeps its link and the repo copy is updated.
+`--target` and `--skill-target` replace harness detection rather than adding to it. Writes follow
+symlinks, so a managed file that is a link into a dotfiles repo keeps its link and the repo copy is
+updated.
 
 ## Install
 

@@ -29,15 +29,15 @@ that is on disk but missing from the package.
 cargo fmt --check
 cargo lint
 cargo test
-cargo package --list     # 24 files; agent-rule.md must be one of them
+cargo package --list     # 25 files; agent-rule.md and agent-skill.md must be among them
 cargo publish --dry-run
 ```
 
-`src/rule.rs` reads `agent-rule.md` with `include_str!`, so the crate does not compile if that file
-is left out of the package. There is no `include` list: everything ships except hidden paths, which
-cargo skips on its own, and the two entries in `exclude`. A new asset is therefore packaged by
-default rather than silently dropped. Check `cargo package --list` anyway when you add a file
-outside `src/`.
+`src/rule.rs` reads `agent-rule.md` and `agent-skill.md` with `include_str!`, so the crate does not
+compile if either file is left out of the package. There is no `include` list: everything ships
+except hidden paths, which cargo skips on its own, and the two entries in `exclude`. A new asset is
+therefore packaged by default rather than silently dropped. Check `cargo package --list` anyway
+when you add a file outside `src/`.
 
 ## What a published version cannot do
 
