@@ -279,7 +279,8 @@ pub enum LeaseOutcome {
     PoolExhausted {
         platform: Platform,
         name: String,
-        command: String,
+        device_type: Option<String>,
+        runtime: Option<String>,
         expires_at: u64,
     },
 }
@@ -307,14 +308,6 @@ pub fn acquire(
                         .unwrap_or_else(|| naming::default_base(config, lease.platform)),
                     &pool,
                 );
-                let command = devices::create_plan(
-                    config,
-                    lease.platform,
-                    &name,
-                    lease.device_type.as_deref(),
-                    lease.runtime.as_deref(),
-                )
-                .unwrap_or_else(|error| format!("# cannot build a create command: {error:#}"));
                 let expires_at = now + config.reservation_ttl_secs;
                 state.reservations.push(Reservation {
                     name: name.clone(),
@@ -325,7 +318,8 @@ pub fn acquire(
                 return Ok(LeaseOutcome::PoolExhausted {
                     platform: lease.platform,
                     name,
-                    command,
+                    device_type: lease.device_type.clone(),
+                    runtime: lease.runtime.clone(),
                     expires_at,
                 });
             }
@@ -476,10 +470,19 @@ pub fn report_lease(config: &Config, outcome: &LeaseOutcome, output: OutputArgs)
         LeaseOutcome::PoolExhausted {
             platform,
             name,
-            command,
+            device_type,
+            runtime,
             expires_at,
         } => {
-            let next_step = format!("{command}\nspc device add '{name}'");
+            let command = devices::create_plan(
+                config,
+                *platform,
+                name,
+                device_type.as_deref(),
+                runtime.as_deref(),
+            )
+            .unwrap_or_else(|error| format!("# cannot build a create command: {error:#}"));
+            let next_step = format!("{command}\nsimporter device add '{name}'");
             let hint = format!(
                 "every pooled device carries the {:?} suffix so your own devices stay untouched",
                 config.agent_suffix
@@ -489,7 +492,7 @@ pub fn report_lease(config: &Config, outcome: &LeaseOutcome, output: OutputArgs)
                 platform: *platform,
                 reserved_name: name,
                 reservation_expires_at: clock::rfc3339(*expires_at),
-                create_command: command,
+                create_command: &command,
                 next_step: &next_step,
                 hint: &hint,
             };

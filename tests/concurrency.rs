@@ -65,7 +65,10 @@ fn a_two_device_pool_admits_exactly_two_agents() {
     let mut devices: HashSet<String> = HashSet::new();
     let mut reserved: Vec<String> = Vec::new();
     for output in &outputs {
-        let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let payload: serde_json::Value =
+            serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+                panic!("{error}: exit {:?}: {}", output.status.code(), text(output))
+            });
         match output.status.code() {
             Some(0) => {
                 let id = payload["device"]["id"].as_str().unwrap().to_string();
@@ -94,6 +97,35 @@ fn a_two_device_pool_admits_exactly_two_agents() {
         );
         assert_ne!(name, "iPhone 17 Pro Agent 1");
         assert_ne!(name, "iPhone 17 Pro Agent 2");
+    }
+}
+
+#[test]
+fn a_slow_create_command_does_not_hold_the_lock() {
+    let home = sandbox("slow-xcrun");
+    std::fs::write(home.join("config.json"), r#"{"lock_timeout_secs": 3}"#).unwrap();
+    slow_xcrun(&home);
+    let pool = write_pool(&home, "[]");
+    let outputs = fan_out(&home, Some(&pool), |index| {
+        vec![
+            "claim".to_string(),
+            "--platform".to_string(),
+            "ios".to_string(),
+            "--owner".to_string(),
+            format!("agent-{index}"),
+            "--json".to_string(),
+        ]
+    });
+
+    for output in &outputs {
+        assert_eq!(output.status.code(), Some(3), "{}", text(output));
+        let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let name = payload["reserved_name"].as_str().unwrap();
+        let next_step = payload["next_step"].as_str().unwrap();
+        assert!(
+            next_step.ends_with(&format!("\nsimporter device add '{name}'")),
+            "{next_step}"
+        );
     }
 }
 
@@ -261,6 +293,11 @@ fn simporter(home: &Path, pool: Option<&Path>, args: &[&str]) -> Output {
 fn command(home: &Path, pool: Option<&Path>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_simporter"));
     command.env("SIMPORTER_HOME", home);
+    let bin = home.join("bin");
+    if bin.is_dir() {
+        let path = std::env::var("PATH").unwrap_or_default();
+        command.env("PATH", format!("{}:{path}", bin.display()));
+    }
     command.env_remove("SIMPORTER_OWNER");
     match pool {
         Some(path) => command.env("SIMPORTER_DEVICE_SOURCE", path),
@@ -293,6 +330,15 @@ fn kill_hard(pid: u32) {
         .status()
         .expect("failed to run kill");
     assert!(status.success(), "could not kill {pid}");
+}
+
+fn slow_xcrun(home: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let script = bin.join("xcrun");
+    std::fs::write(&script, "#!/bin/sh\nsleep 1\nexit 1\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 fn write_pool(home: &Path, body: &str) -> PathBuf {
