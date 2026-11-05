@@ -121,6 +121,9 @@ fn is_heavy(words: &[String]) -> bool {
         return false;
     };
     let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+    if only_prints_usage(&rest) {
+        return false;
+    }
     if runs_a_react_native_build(words) {
         return true;
     }
@@ -135,6 +138,12 @@ fn is_heavy(words: &[String]) -> bool {
         "xcrun" => rest.starts_with(&["simctl", "boot"]),
         _ => false,
     }
+}
+
+fn only_prints_usage(args: &[&str]) -> bool {
+    args.iter()
+        .take_while(|arg| **arg != "--")
+        .any(|arg| matches!(*arg, "--help" | "-h" | "--version" | "-version"))
 }
 
 fn runs_a_react_native_build(words: &[String]) -> bool {
@@ -244,6 +253,7 @@ mod tests {
             "/usr/bin/xcodebuild build",
             "cargo build 2>&1 | tail -20",
             "echo start; cargo test",
+            "cargo test -- --help",
         ] {
             assert!(flagged(command).is_some(), "{command} was not flagged");
         }
@@ -264,6 +274,12 @@ mod tests {
             "git commit -m \"xcodebuild; cargo build\"",
             "ls # cargo build",
             "grep -rn xcodebuild src",
+            "cargo build --help",
+            "cargo test -h",
+            "xcodebuild -version",
+            "./gradlew --version",
+            "pod install --help",
+            "npx react-native run-ios --help",
         ] {
             assert_eq!(flagged(command), None, "{command} was flagged");
         }
