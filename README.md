@@ -8,6 +8,7 @@ It solves two failures:
 1. Two agents drive the same simulator and their actions interleave.
 2. An agent finds something listening on `:8081`, assumes it is its own Metro, and reads another
    agent's bundle and logs.
+3. Too many agents build or boot simulators at the same time, and the machine stalls.
 
 `simporter` does **not** boot devices, start Metro or install apps. It only answers "what may I use".
 
@@ -92,6 +93,54 @@ The suggested device type and runtime are the configured default plus the newest
 Override with `--device-type` and `--runtime`. On Android, `--device-type` sets the AVD name base and
 the hardware profile comes from `default_avd_profile` in the config.
 
+## Heavy work queue
+
+Builds and simulator boots use a lot of CPU. When several agents start them at the same time, the
+machine stalls. `simporter heavy` puts such commands in one queue with a fixed number of slots:
+
+```sh
+simporter heavy -- xcodebuild -workspace App.xcworkspace -scheme App build
+simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcrun simctl boot B'
+```
+
+- The command waits until enough slots are free, runs, and gives the slots back when it exits. If
+  `simporter` itself dies, the next command finds the process gone and frees the slots.
+- The queue is strict first in, first out. A job never starts before a job that queued earlier,
+  also when its weight would fit. A job with a large weight therefore never waits without end.
+- `heavy_slots` in the config sets the number of slots (default 2). `--weight` must not exceed it.
+- The child gets `SIMPORTER_HEAVY_JOB`. A `simporter heavy` inside a heavy job runs at once and
+  takes no slot, so a wrapped script that wraps its own steps cannot wait for itself.
+- `--owner` defaults to `SIMPORTER_OWNER`, then to the parent process id. `--label` defaults to the
+  program name. Both show in `simporter status`, with the time each job has run or waited.
+- `heavy` takes no device and no port. To boot a leased simulator, nest the two:
+  `simporter run -- sh -c 'simporter heavy -- xcrun simctl boot "$SIMPORTER_DEVICE"'`.
+
+The queue limits how many heavy jobs run at once. It does not make one job cheaper.
+
+### Hook for Claude Code
+
+`simporter hook` is a `PreToolUse` hook. It reads the hook input on stdin. When a Bash command runs
+`xcodebuild`, Gradle, `cargo build`/`test`/`bench`/`install`, `swift build -c release`,
+`pod install`, `xcrun simctl boot`, `react-native run-ios`/`run-android` or
+`expo run:ios`/`run:android` outside `simporter heavy`, it denies the command and tells the agent
+to rerun it through the queue. Add it to `~/.claude/settings.json` by hand:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "simporter hook", "timeout": 10 }]
+      }
+    ]
+  }
+}
+```
+
+The hook reads only the command line. It does not see heavy work inside scripts, for example
+`yarn ios` or `bash -c "..."`.
+
 ## Commands
 
 ```
@@ -103,6 +152,8 @@ simporter renew   [<claim-id>] [--ttl 30m]
 simporter status  [--platform ios|android] [--json]
 simporter device  list | add <name> | forget <device>
 simporter run     [claim flags] -- <cmd> ...
+simporter heavy   [--weight N] [--label <text>] [--owner <id>] [--json] -- <cmd> ...
+simporter hook
 simporter gc
 simporter doctor
 ```
@@ -136,7 +187,8 @@ Exit codes: `0` granted, `1` refused or failed, `2` usage, `3` pool exhausted (c
   "port_range_end": 8199,
   "default_ttl_secs": 1800,
   "reservation_ttl_secs": 600,
-  "lock_timeout_secs": 10
+  "lock_timeout_secs": 10,
+  "heavy_slots": 2
 }
 ```
 

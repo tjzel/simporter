@@ -53,6 +53,8 @@ pub struct State {
     pub claims: Vec<Claim>,
     #[serde(default)]
     pub reservations: Vec<Reservation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub heavy: Vec<HeavyJob>,
 }
 
 impl Default for State {
@@ -61,6 +63,7 @@ impl Default for State {
             version: STATE_VERSION,
             claims: Vec::new(),
             reservations: Vec::new(),
+            heavy: Vec::new(),
         }
     }
 }
@@ -81,6 +84,13 @@ impl State {
                 return false;
             }
             true
+        });
+        self.heavy.retain(|job| {
+            if process_is_alive(job.pid) {
+                return true;
+            }
+            report.dropped_heavy.push(job.id.clone());
+            false
         });
         report
     }
@@ -106,6 +116,32 @@ impl State {
             .iter()
             .map(|reservation| reservation.name.as_str())
             .collect()
+    }
+
+    pub fn heavy_in_use(&self) -> u32 {
+        self.heavy
+            .iter()
+            .filter(|job| job.started_at.is_some())
+            .map(|job| job.weight)
+            .sum()
+    }
+
+    pub fn heavy_can_start(&self, id: &str, slots: u32) -> bool {
+        let Some(first) = self.heavy.iter().find(|job| job.started_at.is_none()) else {
+            return false;
+        };
+        first.id == id && self.heavy_in_use() + first.weight <= slots
+    }
+
+    pub fn next_heavy_id(&self, now: u64) -> String {
+        let taken: HashSet<&str> = self.heavy.iter().map(|job| job.id.as_str()).collect();
+        for seq in 0..u32::MAX {
+            let candidate = format!("h{now:x}-{:x}-{seq:x}", std::process::id());
+            if !taken.contains(candidate.as_str()) {
+                return candidate;
+            }
+        }
+        unreachable!("heavy job id space exhausted")
     }
 
     pub fn next_claim_id(&self, now: u64) -> String {
@@ -173,6 +209,18 @@ pub struct Reservation {
     pub expires_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeavyJob {
+    pub id: String,
+    pub owner: String,
+    pub label: String,
+    pub weight: u32,
+    pub pid: u32,
+    pub queued_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeathReason {
     Expired,
@@ -192,6 +240,7 @@ impl std::fmt::Display for DeathReason {
 pub struct GcReport {
     pub dropped_claims: Vec<(String, DeathReason)>,
     pub dropped_reservations: Vec<String>,
+    pub dropped_heavy: Vec<String>,
 }
 
 pub fn resolve_links(path: &Path) -> PathBuf {

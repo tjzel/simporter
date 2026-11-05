@@ -25,6 +25,7 @@ Hold a simporter lease before you do any of these:
 3. **Never touch a device simporter did not give you.** Only devices whose name carries the
    `Agent` suffix are shared. Every other simulator belongs to the human at the keyboard.
 4. **Release when you finish**, or hold the lease under `simporter run` so it releases itself.
+5. **Run heavy work through `simporter heavy`.** See "Heavy work" below.
 
 ## How
 
@@ -90,6 +91,29 @@ back just one, `simporter release <claim-id>`.
 
 Ask only for what you need. A device you hold is a device no other agent can use.
 
+## Heavy work
+
+Builds and simulator boots use a lot of CPU. Too many at once stall the machine for every agent.
+Run each one through the heavy-work queue:
+
+```sh
+simporter heavy -- xcodebuild -workspace App.xcworkspace -scheme App build
+simporter heavy -- ./gradlew assembleDebug
+simporter heavy -- cargo build --release
+simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcrun simctl boot B'
+```
+
+- Heavy work: Xcode, Gradle, Cargo and SwiftPM builds, `pod install`, `react-native run-ios` /
+  `run-android`, `expo run:ios` / `run:android`, and simulator or emulator boots.
+- The command waits in a first in, first out queue until a slot is free. While it waits, it prints
+  who holds the slots. Do not kill other agents' jobs to get a slot.
+- One job takes one slot. Use `--weight 2` for two simulators at once.
+- `heavy` takes no device and no port. To boot a leased simulator, nest the two:
+  `simporter run -- sh -c 'simporter heavy -- xcrun simctl boot "$SIMPORTER_DEVICE"'`.
+- A `simporter heavy` inside a heavy job runs at once, so wrapping a script that wraps its own
+  steps is safe.
+- `simporter status` shows the running and waiting heavy jobs.
+
 ## Exit codes
 
 | code | meaning | what to do |
@@ -107,5 +131,5 @@ That name is yours alone, so two agents never create the same device. Create it,
 
 ## Checking
 
-- `simporter status` — every lease, every device, and who holds what
+- `simporter status` — every lease, every device, every heavy job, and who holds what
 - `simporter doctor` — confirms simctl, adb, emulator and avdmanager are reachable

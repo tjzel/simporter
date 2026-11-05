@@ -11,6 +11,7 @@ use crate::cli::{
 use crate::config::Config;
 use crate::devices::{self, Device, Platform};
 use crate::exit;
+use crate::heavy;
 use crate::lock::LockGuard;
 use crate::naming;
 use crate::ports;
@@ -209,6 +210,7 @@ pub fn gc(config: &Config, args: OutputArgs) -> Result<i32> {
         status: "collected",
         dropped_claims: &dropped,
         dropped_reservations: &report.dropped_reservations,
+        dropped_heavy: &report.dropped_heavy,
         live_claims: state.claims.len(),
         live_reservations: state.reservations.len(),
     };
@@ -218,6 +220,9 @@ pub fn gc(config: &Config, args: OutputArgs) -> Result<i32> {
         }
         for name in &report.dropped_reservations {
             println!("dropped reservation {name}");
+        }
+        for id in &report.dropped_heavy {
+            println!("dropped heavy job {id} (owner process gone)");
         }
         println!(
             "{} live leases, {} reservations",
@@ -565,6 +570,7 @@ fn build_status(config: &Config, state: &State, discovered: &[Device], now: u64)
         devices,
         reservations,
         port_range: format!("{}-{}", config.port_range_start, config.port_range_end),
+        heavy: heavy::status_payload(state, config.heavy_slots, now),
     }
 }
 
@@ -661,6 +667,7 @@ fn print_status(payload: &StatusPayload) {
             reservation.name, reservation.owner, reservation.expires_at
         );
     }
+    heavy::print_status(&payload.heavy);
 }
 
 fn print_devices(payload: &StatusPayload) {
@@ -766,6 +773,7 @@ struct StatusPayload {
     devices: Vec<PoolEntry>,
     reservations: Vec<ReservationPayload>,
     port_range: String,
+    heavy: heavy::HeavyStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -823,6 +831,7 @@ struct GcPayload<'a> {
     status: &'static str,
     dropped_claims: &'a [DroppedClaim],
     dropped_reservations: &'a [String],
+    dropped_heavy: &'a [String],
     live_claims: usize,
     live_reservations: usize,
 }

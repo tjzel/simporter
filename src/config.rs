@@ -16,6 +16,7 @@ pub struct Config {
     pub default_ttl_secs: u64,
     pub reservation_ttl_secs: u64,
     pub lock_timeout_secs: u64,
+    pub heavy_slots: u32,
 }
 
 impl Default for Config {
@@ -30,6 +31,7 @@ impl Default for Config {
             default_ttl_secs: 1800,
             reservation_ttl_secs: 600,
             lock_timeout_secs: 10,
+            heavy_slots: 2,
         }
     }
 }
@@ -64,6 +66,10 @@ impl Config {
         anyhow::ensure!(
             self.default_ttl_secs > 0,
             "default_ttl_secs must be greater than zero"
+        );
+        anyhow::ensure!(
+            self.heavy_slots > 0,
+            "heavy_slots must be greater than zero"
         );
         Ok(())
     }

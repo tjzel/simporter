@@ -8,6 +8,7 @@ Several AI agents share this machine. They collide on simulators, emulators and 
 2. **Never free a port by killing its holder.** No `kill`, no `fuckport`, no `pkill -f metro`.
 3. **Never touch a device whose name does not carry the `Agent` suffix.** It belongs to the human.
 4. **Release when you finish**, or hold the lease under `simporter run`.
+5. **Run builds and simulator boots as `simporter heavy -- <command>`.** It waits for a free slot.
 
 Before you boot or drive a simulator or emulator, start Metro or any server, or connect to a port
 you did not start, load the `simporter` skill. If the skill is not available, run

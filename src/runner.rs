@@ -123,7 +123,7 @@ fn announce(claim: &Claim, json: bool) {
     );
 }
 
-fn exit_code(status: std::process::ExitStatus) -> i32 {
+pub fn exit_code(status: std::process::ExitStatus) -> i32 {
     use std::os::unix::process::ExitStatusExt;
     status
         .code()

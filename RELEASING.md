@@ -29,7 +29,7 @@ that is on disk but missing from the package.
 cargo fmt --check
 cargo lint
 cargo test
-cargo package --list     # 25 files; agent-rule.md and agent-skill.md must be among them
+cargo package --list     # 28 files; agent-rule.md and agent-skill.md must be among them
 cargo publish --dry-run
 ```
 

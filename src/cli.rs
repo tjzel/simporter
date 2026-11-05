@@ -29,6 +29,10 @@ pub enum Command {
     Device(DeviceCommand),
     /// Hold a lease for exactly as long as a child command runs
     Run(RunArgs),
+    /// Wait for a heavy-work slot, then run a CPU-heavy command while holding it
+    Heavy(HeavyArgs),
+    /// Hook for Claude Code: refuse heavy commands not run through `simporter heavy`
+    Hook,
     /// Drop leases whose owner is gone or whose lease expired
     Gc(OutputArgs),
     /// Check that the tooling this depends on is present
@@ -175,6 +179,24 @@ pub struct RunArgs {
     #[command(flatten)]
     pub output: OutputArgs,
     /// Command to run while the lease is held
+    #[arg(last = true, required = true)]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct HeavyArgs {
+    /// Slots this job takes, for example 2 for two simulators at once
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+    pub weight: u32,
+    /// Name shown in `simporter status`; defaults to the program name
+    #[arg(long)]
+    pub label: Option<String>,
+    /// Who holds the slot; defaults to `SIMPORTER_OWNER`, then to the parent process id
+    #[arg(long)]
+    pub owner: Option<String>,
+    #[command(flatten)]
+    pub output: OutputArgs,
+    /// Command to run while the slot is held
     #[arg(last = true, required = true)]
     pub command: Vec<String>,
 }

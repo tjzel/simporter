@@ -4,6 +4,8 @@ mod commands;
 mod config;
 mod devices;
 mod exit;
+mod heavy;
+mod hook;
 mod lock;
 mod naming;
 mod ports;
@@ -31,8 +33,15 @@ fn main() -> ExitCode {
 }
 
 fn dispatch(cli: &Cli) -> anyhow::Result<i32> {
-    let config = config::load()?;
     match &cli.command {
+        Command::Hook => Ok(hook::run()),
+        command => dispatch_with_config(command),
+    }
+}
+
+fn dispatch_with_config(command: &Command) -> anyhow::Result<i32> {
+    let config = config::load()?;
+    match command {
         Command::Claim(args) => commands::claim(&config, args),
         Command::Release(args) => commands::release(&config, args),
         Command::Renew(args) => commands::renew(&config, args),
@@ -41,6 +50,8 @@ fn dispatch(cli: &Cli) -> anyhow::Result<i32> {
         Command::Device(DeviceCommand::Add(args)) => commands::device_add(&config, args),
         Command::Device(DeviceCommand::Forget(args)) => commands::device_forget(&config, args),
         Command::Run(args) => runner::run(&config, args),
+        Command::Heavy(args) => heavy::run(&config, args),
+        Command::Hook => Ok(hook::run()),
         Command::Gc(args) => commands::gc(&config, *args),
         Command::Doctor(args) => Ok(commands::doctor(&config, *args)),
         Command::Rule(args) => rule::run(args),
