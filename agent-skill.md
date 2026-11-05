@@ -113,6 +113,8 @@ simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcr
 - A `simporter heavy` inside a heavy job runs at once, so wrapping a script that wraps its own
   steps is safe.
 - `simporter status` shows the running and waiting heavy jobs.
+- `--wait-timeout 10m` gives up after that time: the command does not run, and `simporter` exits
+  with `6` and names the jobs that hold the slots. Tell the user; do not kill those jobs.
 
 ## Exit codes
 
@@ -124,6 +126,7 @@ simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcr
 | 3 | pool empty | run the printed create command, then `simporter device add '<reserved name>'` |
 | 4 | no free port | stop and tell the user; do not take a port anyway |
 | 5 | lock busy | another simporter command is mid-write; retry once |
+| 6 | heavy timeout | `--wait-timeout` passed before a heavy slot was free; tell the user who holds the slots |
 
 On exit 3 simporter reserves a device name for you and prints the exact command that creates it.
 That name is yours alone, so two agents never create the same device. Create it, register it with

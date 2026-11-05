@@ -194,6 +194,9 @@ pub struct HeavyArgs {
     /// Who holds the slot; defaults to `SIMPORTER_OWNER`, then to the parent process id
     #[arg(long)]
     pub owner: Option<String>,
+    /// Give up after waiting this long for a slot, for example 45s, 30m or 2h; exits with code 6
+    #[arg(long, value_name = "DURATION")]
+    pub wait_timeout: Option<String>,
     #[command(flatten)]
     pub output: OutputArgs,
     /// Command to run while the slot is held

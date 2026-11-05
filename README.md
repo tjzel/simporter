@@ -108,6 +108,9 @@ simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcr
 - The queue is strict first in, first out. A job never starts before a job that queued earlier,
   also when its weight would fit. A job with a large weight therefore never waits without end.
 - `heavy_slots` in the config sets the number of slots (default 2). `--weight` must not exceed it.
+- `--wait-timeout 10m` stops waiting after that time: the job leaves the queue, the command does
+  not run, and `simporter` exits with `6` and names the jobs that hold the slots. Without it, a job
+  waits until it gets its slots.
 - The child gets `SIMPORTER_HEAVY_JOB`. A `simporter heavy` inside a heavy job runs at once and
   takes no slot, so a wrapped script that wraps its own steps cannot wait for itself.
 - `--owner` defaults to `SIMPORTER_OWNER`, then to the parent process id. `--label` defaults to the
@@ -152,14 +155,16 @@ simporter renew   [<claim-id>] [--ttl 30m]
 simporter status  [--platform ios|android] [--json]
 simporter device  list | add <name> | forget <device>
 simporter run     [claim flags] -- <cmd> ...
-simporter heavy   [--weight N] [--label <text>] [--owner <id>] [--json] -- <cmd> ...
+simporter heavy   [--weight N] [--label <text>] [--owner <id>] [--wait-timeout 10m]
+                  [--json] -- <cmd> ...
 simporter hook
 simporter gc
 simporter doctor
 ```
 
 Exit codes: `0` granted, `1` refused or failed, `2` usage, `3` pool exhausted (create a device),
-`4` no free port in range, `5` timed out waiting for the state lock.
+`4` no free port in range, `5` timed out waiting for the state lock, `6` timed out waiting for a
+heavy slot.
 
 ## How exclusivity is enforced
 

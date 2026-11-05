@@ -6,6 +6,7 @@ pub const USAGE: i32 = 2;
 pub const POOL_EXHAUSTED: i32 = 3;
 pub const NO_FREE_PORT: i32 = 4;
 pub const LOCK_TIMEOUT: i32 = 5;
+pub const HEAVY_TIMEOUT: i32 = 6;
 
 #[derive(Debug)]
 pub struct LockTimeout {
@@ -58,9 +59,25 @@ impl std::fmt::Display for NoFreePort {
 
 impl std::error::Error for NoFreePort {}
 
+#[derive(Debug)]
+pub struct HeavyTimeout {
+    pub message: String,
+}
+
+impl std::fmt::Display for HeavyTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HeavyTimeout {}
+
 pub fn code_for(error: &anyhow::Error) -> i32 {
     if error.downcast_ref::<LockTimeout>().is_some() {
         return LOCK_TIMEOUT;
+    }
+    if error.downcast_ref::<HeavyTimeout>().is_some() {
+        return HEAVY_TIMEOUT;
     }
     if error.downcast_ref::<NoFreePort>().is_some() {
         return NO_FREE_PORT;
@@ -74,6 +91,14 @@ pub fn code_for(error: &anyhow::Error) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heavy_timeout_maps_to_its_own_code() {
+        let error = anyhow::Error::new(HeavyTimeout {
+            message: "gave up".to_string(),
+        });
+        assert_eq!(code_for(&error), HEAVY_TIMEOUT);
+    }
 
     #[test]
     fn lock_timeout_maps_to_its_own_code() {

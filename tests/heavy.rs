@@ -136,6 +136,75 @@ fn status_lists_running_and_waiting_jobs() {
 }
 
 #[test]
+fn a_job_that_waits_too_long_gives_up_and_leaves_the_queue() {
+    let home = sandbox("wait-timeout", 1);
+    let mut holder = heavy(&home)
+        .args([
+            "--owner",
+            "holder",
+            "--label",
+            "long-build",
+            "--",
+            "sleep",
+            "10",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_for(
+        || heavy_jobs(&home).len() == 1,
+        "the holder to take its slot",
+    );
+
+    let started = Instant::now();
+    let output = heavy(&home)
+        .args(["--owner", "waiter", "--wait-timeout", "1s", "--", "true"])
+        .output()
+        .unwrap();
+    let elapsed = started.elapsed();
+    let jobs = heavy_jobs(&home);
+    let _ = holder.kill();
+    let _ = holder.wait();
+
+    assert_eq!(output.status.code(), Some(6), "{}", text(&output));
+    assert!(
+        elapsed >= Duration::from_secs(1),
+        "gave up after {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "gave up after {elapsed:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("gave up after waiting"), "{stderr}");
+    assert!(stderr.contains("owner=holder long-build"), "{stderr}");
+    assert_eq!(jobs.len(), 1, "the waiter stayed in the queue: {jobs:?}");
+    assert_eq!(jobs[0]["owner"], "holder");
+}
+
+#[test]
+fn a_free_slot_starts_at_once_despite_a_wait_timeout() {
+    let home = sandbox("timeout-free", 1);
+    let output = heavy(&home)
+        .args(["--wait-timeout", "1s", "--", "sh", "-c", "exit 3"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "{}", text(&output));
+}
+
+#[test]
+fn a_bad_wait_timeout_is_a_usage_error() {
+    let home = sandbox("timeout-bad", 1);
+    let output = heavy(&home)
+        .args(["--wait-timeout", "soon", "--", "true"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", text(&output));
+    assert_eq!(heavy_jobs(&home).len(), 0);
+}
+
+#[test]
 fn a_weight_above_the_slot_count_is_a_usage_error() {
     let home = sandbox("too-heavy", 2);
     let output = heavy(&home)

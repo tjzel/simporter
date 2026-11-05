@@ -1,10 +1,10 @@
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::cli::{HeavyArgs, resolve_owner};
+use crate::cli::{HeavyArgs, parse_duration, resolve_owner};
 use crate::commands::with_state;
 use crate::config::Config;
 use crate::state::{HeavyJob, State};
@@ -28,13 +28,25 @@ pub fn run(config: &Config, args: &HeavyArgs) -> Result<i32> {
             args.weight, config.heavy_slots
         )));
     }
+    let wait_timeout = args
+        .wait_timeout
+        .as_deref()
+        .map(parse_duration)
+        .transpose()
+        .map_err(|error| exit::usage(format!("--wait-timeout: {error:#}")))?;
     let owner = owner(args.owner.as_deref());
     let label = args
         .label
         .clone()
         .unwrap_or_else(|| default_label(&args.command));
     let id = enqueue(config, &owner, &label, args.weight)?;
-    let waited = wait_for_slot(config, &id, &owner, &label, args.weight, args.output.json)?;
+    let job = QueuedJob {
+        id: &id,
+        owner: &owner,
+        label: &label,
+        weight: args.weight,
+    };
+    let waited = wait_for_slot(config, &job, wait_timeout, args.output.json)?;
     announce_start(&id, &label, waited, args.output.json);
     let status = execute(&args.command, Some(&id));
     let released = with_state(config, |state, _| {
@@ -124,17 +136,20 @@ fn new_job(id: &str, owner: &str, label: &str, weight: u32, now: u64) -> HeavyJo
 
 fn wait_for_slot(
     config: &Config,
-    id: &str,
-    owner: &str,
-    label: &str,
-    weight: u32,
+    job: &QueuedJob,
+    wait_timeout: Option<u64>,
     json: bool,
 ) -> Result<u64> {
+    let id = job.id;
+    let deadline = wait_timeout.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     let mut last_seen: Option<(u32, usize)> = None;
     loop {
+        let expired = deadline.is_some_and(|deadline| Instant::now() >= deadline);
         let progress = with_state(config, |state, now| {
-            if !state.heavy.iter().any(|job| job.id == id) {
-                state.heavy.push(new_job(id, owner, label, weight, now));
+            if !state.heavy.iter().any(|queued| queued.id == id) {
+                state
+                    .heavy
+                    .push(new_job(id, job.owner, job.label, job.weight, now));
             }
             if state.heavy_can_start(id, config.heavy_slots) {
                 let job = state
@@ -145,14 +160,23 @@ fn wait_for_slot(
                 job.started_at = Some(now);
                 return Ok(Progress::Started(now.saturating_sub(job.queued_at)));
             }
-            Ok(Progress::Waiting(status_payload(
-                state,
-                config.heavy_slots,
-                now,
-            )))
+            let status = status_payload(state, config.heavy_slots, now);
+            if expired {
+                state.heavy.retain(|queued| queued.id != id);
+                return Ok(Progress::TimedOut(status));
+            }
+            Ok(Progress::Waiting(status))
         })?;
         match progress {
             Progress::Started(waited) => return Ok(waited),
+            Progress::TimedOut(status) => {
+                return Err(timed_out(
+                    id,
+                    &status,
+                    wait_timeout.unwrap_or_default(),
+                    json,
+                ));
+            }
             Progress::Waiting(status) => {
                 let ahead = status
                     .jobs
@@ -202,6 +226,49 @@ fn announce_wait(id: &str, status: &HeavyStatus, ahead: usize, json: bool) {
     }
 }
 
+fn timed_out(id: &str, status: &HeavyStatus, waited: u64, json: bool) -> anyhow::Error {
+    let running: Vec<&HeavyJobPayload> = status
+        .jobs
+        .iter()
+        .filter(|job| job.state == "running")
+        .collect();
+    if json {
+        let event = TimeoutEvent {
+            event: "timed_out",
+            job_id: id,
+            waited_secs: waited,
+            slots: status.slots,
+            in_use: status.in_use,
+            running: &running,
+        };
+        if let Ok(body) = serde_json::to_string(&event) {
+            eprintln!("{body}");
+        }
+    }
+    let holders: Vec<String> = running
+        .iter()
+        .map(|job| {
+            format!(
+                "owner={} {} weight={} running for {}",
+                job.owner, job.label, job.weight, job.elapsed
+            )
+        })
+        .collect();
+    anyhow::Error::new(exit::HeavyTimeout {
+        message: format!(
+            "gave up after waiting {} for a heavy slot ({}/{} in use); held by: {}",
+            clock::humanize(waited),
+            status.in_use,
+            status.slots,
+            if holders.is_empty() {
+                "jobs queued ahead of this one".to_string()
+            } else {
+                holders.join("; ")
+            }
+        ),
+    })
+}
+
 fn announce_start(id: &str, label: &str, waited: u64, json: bool) {
     if json {
         let event = StartEvent {
@@ -234,9 +301,17 @@ fn execute(command: &[String], job_id: Option<&str>) -> Result<i32> {
     Ok(runner::exit_code(status))
 }
 
+struct QueuedJob<'a> {
+    id: &'a str,
+    owner: &'a str,
+    label: &'a str,
+    weight: u32,
+}
+
 enum Progress {
     Started(u64),
     Waiting(HeavyStatus),
+    TimedOut(HeavyStatus),
 }
 
 #[derive(Debug, Serialize)]
@@ -266,6 +341,16 @@ struct WaitEvent<'a> {
     slots: u32,
     in_use: u32,
     ahead: usize,
+    running: &'a [&'a HeavyJobPayload],
+}
+
+#[derive(Debug, Serialize)]
+struct TimeoutEvent<'a> {
+    event: &'static str,
+    job_id: &'a str,
+    waited_secs: u64,
+    slots: u32,
+    in_use: u32,
     running: &'a [&'a HeavyJobPayload],
 }
 
