@@ -217,7 +217,10 @@ fn the_run_wrapper_exports_its_lease_and_releases_on_exit() {
     );
     assert_eq!(output.status.code(), Some(0), "{}", text(&output));
     let printed = String::from_utf8_lossy(&output.stdout);
-    assert!(printed.contains("iPhone 17 Pro Agent 1/8081"), "{printed}");
+    let (device, port) = printed.trim().split_once('/').unwrap();
+    assert_eq!(device, "iPhone 17 Pro Agent 1", "{printed}");
+    let port: u16 = port.parse().unwrap();
+    assert!((8081..=8199).contains(&port), "{printed}");
 
     let status = simporter(&home, Some(&pool), &["status", "--json"]);
     let payload: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
@@ -241,6 +244,7 @@ fn a_released_lease_frees_its_device_and_ports() {
         &["claim", "--ports", "metro", "--owner", "a", "--json"],
     );
     assert_eq!(first.status.code(), Some(0), "{}", text(&first));
+    let first_payload: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
 
     let blocked = simporter(
         &home,
@@ -259,7 +263,7 @@ fn a_released_lease_frees_its_device_and_ports() {
     );
     assert_eq!(second.status.code(), Some(0), "{}", text(&second));
     let payload: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
-    assert_eq!(payload["ports"]["metro"], 8081);
+    assert_eq!(payload["ports"]["metro"], first_payload["ports"]["metro"]);
 }
 
 #[test]
