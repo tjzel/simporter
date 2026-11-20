@@ -6,7 +6,7 @@ The repo is initialised, committed and pointed at `https://github.com/tjzel/simp
 public and still empty. What is left is the first push:
 
 ```sh
-git push -u origin main
+git push -u origin tromba
 ```
 
 Then get a crates.io token with the `publish-new` and `publish-update` scopes from
