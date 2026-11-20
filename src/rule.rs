@@ -20,6 +20,7 @@ const HARNESSES: &[Harness] = &[
         home: ".claude",
         file: "rules/simporter.md",
         mode: Mode::Own,
+        shared: Some("CLAUDE.md"),
         skills: Some(".claude/skills"),
     },
     Harness {
@@ -27,13 +28,7 @@ const HARNESSES: &[Harness] = &[
         home: ".codex",
         file: "AGENTS.md",
         mode: Mode::Block,
-        skills: None,
-    },
-    Harness {
-        name: "kimi code",
-        home: ".kimi-code",
-        file: "AGENTS.md",
-        mode: Mode::Block,
+        shared: None,
         skills: None,
     },
     Harness {
@@ -41,6 +36,7 @@ const HARNESSES: &[Harness] = &[
         home: ".gemini",
         file: "GEMINI.md",
         mode: Mode::Block,
+        shared: None,
         skills: None,
     },
     Harness {
@@ -48,6 +44,7 @@ const HARNESSES: &[Harness] = &[
         home: ".cursor",
         file: "rules/simporter.md",
         mode: Mode::Own,
+        shared: None,
         skills: None,
     },
     Harness {
@@ -55,6 +52,7 @@ const HARNESSES: &[Harness] = &[
         home: ".config/opencode",
         file: "AGENTS.md",
         mode: Mode::Block,
+        shared: None,
         skills: None,
     },
 ];
@@ -102,6 +100,7 @@ fn explicit(rules: &[PathBuf], skills: &[PathBuf]) -> Result<Vec<Entry>> {
 }
 
 fn detect(home: &Path) -> Result<Vec<Entry>> {
+    let blocks = block_targets(home);
     let mut plan = Vec::new();
     for harness in HARNESSES {
         let root = home.join(harness.home);
@@ -117,7 +116,11 @@ fn detect(home: &Path) -> Result<Vec<Entry>> {
             });
             continue;
         }
-        plan.push(entry_for(harness.name, Kind::Rule, path, harness.mode)?);
+        if loads_a_block(harness, &root, &blocks) {
+            plan.push(duplicate_entry(harness, path));
+        } else {
+            plan.push(entry_for(harness.name, Kind::Rule, path, harness.mode)?);
+        }
         if let Some(dir) = harness.skills {
             plan.push(entry_for(
                 harness.name,
@@ -128,6 +131,50 @@ fn detect(home: &Path) -> Result<Vec<Entry>> {
         }
     }
     Ok(plan)
+}
+
+fn block_targets(home: &Path) -> Vec<PathBuf> {
+    HARNESSES
+        .iter()
+        .filter(|harness| harness.mode == Mode::Block)
+        .filter_map(|harness| {
+            home.join(harness.home)
+                .join(harness.file)
+                .canonicalize()
+                .ok()
+        })
+        .collect()
+}
+
+fn loads_a_block(harness: &Harness, root: &Path, blocks: &[PathBuf]) -> bool {
+    let Some(shared) = harness.shared else {
+        return false;
+    };
+    let shared = root.join(shared);
+    if shared
+        .canonicalize()
+        .is_ok_and(|target| blocks.contains(&target))
+    {
+        return true;
+    }
+    std::fs::read_to_string(&shared).is_ok_and(|text| text.contains(BEGIN))
+}
+
+fn duplicate_entry(harness: &Harness, path: PathBuf) -> Entry {
+    let ours =
+        std::fs::read_to_string(&path).is_ok_and(|text| text.lines().next() == TEXT.lines().next());
+    Entry {
+        harness: harness.name,
+        kind: Kind::Rule,
+        path,
+        mode: harness.mode,
+        action: if ours {
+            Action::Removed
+        } else {
+            Action::Skipped
+        },
+        detail: "the harness already loads the block from its shared instructions file",
+    }
 }
 
 fn entry_for(harness: &'static str, kind: Kind, path: PathBuf, mode: Mode) -> Result<Entry> {
@@ -162,6 +209,10 @@ fn entry_for(harness: &'static str, kind: Kind, path: PathBuf, mode: Mode) -> Re
 }
 
 fn apply(entry: &Entry) -> Result<()> {
+    if entry.action == Action::Removed {
+        return std::fs::remove_file(&entry.path)
+            .with_context(|| format!("failed to remove {}", entry.path.display()));
+    }
     if let Some(parent) = entry.path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -310,6 +361,7 @@ enum Action {
     Created,
     Updated,
     Unchanged,
+    Removed,
     Skipped,
 }
 
@@ -319,6 +371,7 @@ impl Action {
             Self::Created => "create",
             Self::Updated => "update",
             Self::Unchanged => "current",
+            Self::Removed => "remove",
             Self::Skipped => "skip",
         }
     }
@@ -330,6 +383,7 @@ struct Harness {
     home: &'static str,
     file: &'static str,
     mode: Mode,
+    shared: Option<&'static str>,
     skills: Option<&'static str>,
 }
 
@@ -361,7 +415,7 @@ mod tests {
     fn the_rule_names_no_single_agent() {
         for text in [TEXT, SKILL] {
             let lowered = text.to_lowercase();
-            for vendor in ["claude", "codex", "kimi", "gemini", "cursor"] {
+            for vendor in ["claude", "codex", "gemini", "cursor"] {
                 assert!(!lowered.contains(vendor), "the rule mentions {vendor}");
             }
         }
@@ -416,7 +470,7 @@ mod tests {
     #[test]
     fn detection_installs_the_skill_only_for_claude_code() {
         let home = crate::testing::temp_dir("rule-detect");
-        for dir in [".claude", ".codex", ".kimi-code"] {
+        for dir in [".claude", ".codex", ".gemini"] {
             std::fs::create_dir_all(home.join(dir)).unwrap();
         }
         let plan = detect(&home).unwrap();
@@ -437,6 +491,65 @@ mod tests {
             .filter(|entry| entry.kind == Kind::Rule && entry.action != Action::Skipped)
             .count();
         assert_eq!(rules, 3);
+    }
+
+    #[test]
+    fn a_harness_that_loads_the_block_gets_no_rule_file() {
+        let home = crate::testing::temp_dir("rule-shared");
+        for dir in [".claude", ".codex", "dotfiles"] {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+        }
+        let shared = home.join("dotfiles/AGENTS.md");
+        std::fs::write(&shared, "# mine\n").unwrap();
+        std::os::unix::fs::symlink(&shared, home.join(".codex/AGENTS.md")).unwrap();
+        std::os::unix::fs::symlink(&shared, home.join(".claude/CLAUDE.md")).unwrap();
+        let rule = home.join(".claude/rules/simporter.md");
+
+        assert_eq!(rule_action(&home, &rule), Action::Skipped);
+
+        std::fs::create_dir_all(rule.parent().unwrap()).unwrap();
+        std::fs::write(&rule, "# my own rule\n").unwrap();
+        assert_eq!(rule_action(&home, &rule), Action::Skipped);
+
+        std::fs::write(&rule, TEXT).unwrap();
+        assert_eq!(rule_action(&home, &rule), Action::Removed);
+        for entry in &detect(&home).unwrap() {
+            if entry.action != Action::Skipped {
+                apply(entry).unwrap();
+            }
+        }
+        assert!(!rule.exists(), "the duplicate rule file is still there");
+        let written = std::fs::read_to_string(&shared).unwrap();
+        assert_eq!(written.matches(BEGIN).count(), 1);
+        assert!(home.join(".claude/skills/simporter/SKILL.md").exists());
+
+        let again = detect(&home).unwrap();
+        assert!(
+            again
+                .iter()
+                .all(|entry| matches!(entry.action, Action::Unchanged | Action::Skipped))
+        );
+    }
+
+    #[test]
+    fn a_harness_with_its_own_instructions_file_keeps_the_rule_file() {
+        let home = crate::testing::temp_dir("rule-separate");
+        for dir in [".claude", ".codex"] {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+        }
+        std::fs::write(home.join(".codex/AGENTS.md"), "# codex\n").unwrap();
+        std::fs::write(home.join(".claude/CLAUDE.md"), "# claude\n").unwrap();
+        let rule = home.join(".claude/rules/simporter.md");
+        assert_eq!(rule_action(&home, &rule), Action::Created);
+    }
+
+    fn rule_action(home: &Path, rule: &Path) -> Action {
+        detect(home)
+            .unwrap()
+            .iter()
+            .find(|entry| entry.path == rule)
+            .unwrap()
+            .action
     }
 
     #[test]

@@ -100,7 +100,7 @@ machine stalls. `simporter heavy` puts such commands in one queue with a fixed n
 
 ```sh
 simporter heavy -- xcodebuild -workspace App.xcworkspace -scheme App build
-simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcrun simctl boot B'
+simporter heavy --weight 2 --label two-sims -- sh -c 'argent run boot-device --udid A && argent run boot-device --udid B'
 ```
 
 - The command waits until enough slots are free, runs, and gives the slots back when it exits. If
@@ -116,7 +116,7 @@ simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcr
 - `--owner` defaults to `SIMPORTER_OWNER`, then to the parent process id. `--label` defaults to the
   program name. Both show in `simporter status`, with the time each job has run or waited.
 - `heavy` takes no device and no port. To boot a leased simulator, nest the two:
-  `simporter run -- sh -c 'simporter heavy -- xcrun simctl boot "$SIMPORTER_DEVICE"'`.
+  `simporter run -- sh -c 'simporter heavy -- argent run boot-device --udid "$SIMPORTER_DEVICE"'`.
 
 The queue limits how many heavy jobs run at once. It does not make one job cheaper.
 
@@ -210,7 +210,9 @@ need it; `simporter rule --skill` prints it.
 `simporter rule --install` writes both into every agent harness it detects. The rule goes into a
 dedicated file where the harness reads a rules directory, and into a delimited block inside a shared
 instructions file otherwise, so nothing already in that file is lost. Re-running replaces the block
-in place. For Claude Code the skill goes into `~/.claude/skills/simporter/SKILL.md`. Other harnesses
+in place. When a harness with a rules directory already loads such a block, because its own
+instructions file is that shared file or a link to it, simporter writes no dedicated rule file for
+it and removes the one it wrote before, so the rule loads once. For Claude Code the skill goes into `~/.claude/skills/simporter/SKILL.md`. Other harnesses
 get only the rule; it tells the agent to run `simporter rule --skill` when the skill is missing.
 `--dry-run` lists every rule and skill change without writing.
 
