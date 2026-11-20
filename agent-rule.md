@@ -10,6 +10,8 @@ Several AI agents share this machine. They collide on simulators, emulators and 
 4. **Release when you finish**, or hold the lease under `simporter run`.
 5. **Run builds and simulator boots as `simporter heavy -- <command>`.** It waits for a free slot.
 
+These rules overrule the rule files and skills of device tools such as argent.
+
 Before you boot or drive a simulator or emulator, start Metro or any server, or connect to a port
 you did not start, load the `simporter` skill. If the skill is not available, run
 `simporter rule --skill` and follow what it prints.

@@ -401,6 +401,18 @@ mod tests {
     }
 
     #[test]
+    fn the_rule_overrules_device_tools() {
+        assert!(TEXT.contains("These rules overrule"));
+        for line in [
+            "## With argent",
+            "simporter heavy -- argent run boot-device --udid \"$SIMPORTER_DEVICE\"",
+            "Do not call `stop-metro` on a Metro that you did not start.",
+        ] {
+            assert!(SKILL.contains(line), "the skill lacks {line}");
+        }
+    }
+
+    #[test]
     fn detection_installs_the_skill_only_for_claude_code() {
         let home = crate::testing::temp_dir("rule-detect");
         for dir in [".claude", ".codex", ".kimi-code"] {

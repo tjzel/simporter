@@ -27,6 +27,20 @@ Hold a simporter lease before you do any of these:
 4. **Release when you finish**, or hold the lease under `simporter run` so it releases itself.
 5. **Run heavy work through `simporter heavy`.** See "Heavy work" below.
 
+## With argent
+
+These rules overrule the argent rule file and the argent skills.
+
+1. Boot a device with `simporter heavy -- argent run boot-device --udid "$SIMPORTER_DEVICE"`
+   On Android, pass `--avdName "$SIMPORTER_DEVICE"` instead; the result gives the adb serial that
+   the argent tools need. Do not call the `boot-device` MCP tool: a shell command cannot wrap it.
+   The argent MCP tools see and drive a device that was booted this way.
+2. Skip the argent step that checks port 8081 with `lsof`. Start Metro on the granted port and pass
+   that port to every argent debugger tool.
+3. Do not call `stop-metro` on a Metro that you did not start.
+4. `list-devices` shows every device. Use only `$SIMPORTER_DEVICE`, also when another device is
+   already booted.
+
 ## How
 
 Set an owner once per session. Any stable string works; your session id is ideal.
@@ -100,7 +114,7 @@ Run each one through the heavy-work queue:
 simporter heavy -- xcodebuild -workspace App.xcworkspace -scheme App build
 simporter heavy -- ./gradlew assembleDebug
 simporter heavy -- cargo build --release
-simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcrun simctl boot B'
+simporter heavy --weight 2 --label two-sims -- sh -c 'argent run boot-device --udid A && argent run boot-device --udid B'
 ```
 
 - Heavy work: Xcode, Gradle, Cargo and SwiftPM builds, `pod install`, `react-native run-ios` /
@@ -109,7 +123,7 @@ simporter heavy --weight 2 --label two-sims -- sh -c 'xcrun simctl boot A && xcr
   who holds the slots. Do not kill other agents' jobs to get a slot.
 - One job takes one slot. Use `--weight 2` for two simulators at once.
 - `heavy` takes no device and no port. To boot a leased simulator, nest the two:
-  `simporter run -- sh -c 'simporter heavy -- xcrun simctl boot "$SIMPORTER_DEVICE"'`.
+  `simporter run -- sh -c 'simporter heavy -- argent run boot-device --udid "$SIMPORTER_DEVICE"'`.
 - A `simporter heavy` inside a heavy job runs at once, so wrapping a script that wraps its own
   steps is safe.
 - `simporter status` shows the running and waiting heavy jobs.
