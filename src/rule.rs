@@ -70,12 +70,13 @@ pub fn run(args: &RuleArgs) -> Result<i32> {
     } else {
         explicit(&args.target, &args.skill_target)?
     };
+    let write = args.install && !args.dry_run;
     for entry in &plan {
-        if args.install && entry.action != Action::Skipped {
+        if write && entry.action != Action::Skipped {
             apply(entry).with_context(|| format!("failed to write {}", entry.path.display()))?;
         }
     }
-    report(args.output, &plan, args.install);
+    report(args.output, &plan, write);
     Ok(exit::OK)
 }
 
