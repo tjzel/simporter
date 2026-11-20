@@ -136,6 +136,7 @@ fn is_heavy(words: &[String]) -> bool {
         "swift" => rest.first() == Some(&"build") && builds_release(&rest),
         "pod" => rest.first() == Some(&"install"),
         "xcrun" => rest.starts_with(&["simctl", "boot"]),
+        "argent" => rest.starts_with(&["run", "boot-device"]),
         _ => false,
     }
 }
@@ -246,6 +247,7 @@ mod tests {
             "swift build --configuration release",
             "pod install",
             "xcrun simctl boot 1234-ABCD",
+            "argent run boot-device --udid 1234-ABCD",
             "npx react-native run-ios --simulator 'iPhone 17 Pro Agent 1'",
             "yarn expo run:android",
             "RCT_NO_LAUNCH_PACKAGER=1 xcodebuild build",
@@ -270,6 +272,9 @@ mod tests {
             "swift build",
             "pod repo update",
             "xcrun simctl list -j devices",
+            "simporter heavy -- argent run boot-device --udid 1234-ABCD",
+            "argent run list-devices",
+            "argent run boot-device --help",
             "echo 'cargo build'",
             "git commit -m \"xcodebuild; cargo build\"",
             "ls # cargo build",

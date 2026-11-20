@@ -124,9 +124,9 @@ The queue limits how many heavy jobs run at once. It does not make one job cheap
 
 `simporter hook` is a `PreToolUse` hook. It reads the hook input on stdin. When a Bash command runs
 `xcodebuild`, Gradle, `cargo build`/`test`/`bench`/`install`, `swift build -c release`,
-`pod install`, `xcrun simctl boot`, `react-native run-ios`/`run-android` or
-`expo run:ios`/`run:android` outside `simporter heavy`, it denies the command and tells the agent
-to rerun it through the queue. Add it to `~/.claude/settings.json` by hand:
+`pod install`, `xcrun simctl boot`, `argent run boot-device`, `react-native run-ios`/`run-android`
+or `expo run:ios`/`run:android` outside `simporter heavy`, it denies the command and tells the
+agent to rerun it through the queue. Add it to `~/.claude/settings.json` by hand:
 
 ```json
 {
