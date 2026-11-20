@@ -4,6 +4,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const AGENTS: usize = 8;
+const FIRST_PORT: u16 = 18201;
+const PORTS_PER_SANDBOX: u16 = 40;
 
 #[test]
 fn concurrent_port_claims_never_overlap() {
@@ -103,7 +105,9 @@ fn a_two_device_pool_admits_exactly_two_agents() {
 #[test]
 fn a_slow_create_command_does_not_hold_the_lock() {
     let home = sandbox("slow-xcrun");
-    std::fs::write(home.join("config.json"), r#"{"lock_timeout_secs": 3}"#).unwrap();
+    let mut config = config(&home);
+    config["lock_timeout_secs"] = 3.into();
+    std::fs::write(home.join("config.json"), config.to_string()).unwrap();
     slow_xcrun(&home);
     let pool = write_pool(&home, "[]");
     let outputs = fan_out(&home, Some(&pool), |index| {
@@ -220,7 +224,7 @@ fn the_run_wrapper_exports_its_lease_and_releases_on_exit() {
     let (device, port) = printed.trim().split_once('/').unwrap();
     assert_eq!(device, "iPhone 17 Pro Agent 1", "{printed}");
     let port: u16 = port.parse().unwrap();
-    assert!((8081..=8199).contains(&port), "{printed}");
+    assert!(port_range(&home).contains(&port), "{printed}");
 
     let status = simporter(&home, Some(&pool), &["status", "--json"]);
     let payload: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
@@ -359,7 +363,24 @@ fn sandbox(label: &str) -> PathBuf {
         .join(format!("{label}-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
+    let start = FIRST_PORT + u16::try_from(seq).unwrap() * PORTS_PER_SANDBOX;
+    let end = start + PORTS_PER_SANDBOX - 1;
+    std::fs::write(
+        path.join("config.json"),
+        format!(r#"{{"port_range_start": {start}, "port_range_end": {end}}}"#),
+    )
+    .unwrap();
     path
+}
+
+fn port_range(home: &Path) -> std::ops::RangeInclusive<u16> {
+    let config = config(home);
+    let bound = |key: &str| u16::try_from(config[key].as_u64().unwrap()).unwrap();
+    bound("port_range_start")..=bound("port_range_end")
+}
+
+fn config(home: &Path) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(home.join("config.json")).unwrap()).unwrap()
 }
 
 fn text(output: &Output) -> String {
