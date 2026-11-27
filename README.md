@@ -172,10 +172,13 @@ heavy slot.
   read-modify-write of `state.json`, and writes it back through a temp file and `rename`. The kernel
   releases `flock` if a process dies, so the lock cannot be orphaned.
 - A port is granted only after the registry says it is unclaimed **and** a live bind proves it is
-  free. The probe binds `127.0.0.1`, `0.0.0.0` and `[::]`, because on macOS a bind to `127.0.0.1`
-  succeeds even when another process holds `0.0.0.0` on that port. Checking loopback alone would
-  hand out a busy port.
+  free. The probe binds `127.0.0.1`, `0.0.0.0`, `[::]` and `[::1]`, because on macOS a bind to
+  `127.0.0.1` succeeds even when another process holds `0.0.0.0` on that port, and every other
+  address succeeds when the process listens only on `[::1]`. Checking loopback alone would hand
+  out a busy port.
 - A lease ends when its TTL expires or, when `owner_pid` is set, when that process is gone.
+  `simporter run` sets `owner_pid` to itself, so its lease ends when it exits: a new process cannot
+  take it over with `renew` (it fails with `no lease matched`); claim again instead.
   `gc` runs at the start of every command.
 
 ## Configuration

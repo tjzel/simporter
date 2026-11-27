@@ -68,6 +68,7 @@ pub fn is_free(port: u16) -> bool {
         probe(SocketAddr::from((Ipv4Addr::LOCALHOST, port))),
         probe(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port))),
         probe(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port))),
+        probe(SocketAddr::from((Ipv6Addr::LOCALHOST, port))),
     ];
     probes.iter().all(|outcome| *outcome != Probe::InUse)
         && probes[0] == Probe::Free
@@ -174,6 +175,13 @@ mod tests {
     #[test]
     fn a_loopback_only_listener_is_still_detected() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!is_free(port));
+    }
+
+    #[test]
+    fn an_ipv6_loopback_only_listener_is_still_detected() {
+        let listener = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(!is_free(port));
     }
