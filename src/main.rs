@@ -9,6 +9,7 @@ mod hook;
 mod lock;
 mod naming;
 mod ports;
+mod reaper;
 mod rule;
 mod runner;
 mod state;
@@ -53,6 +54,7 @@ fn dispatch_with_config(command: &Command) -> anyhow::Result<i32> {
         Command::Heavy(args) => heavy::run(&config, args),
         Command::Hook => Ok(hook::run()),
         Command::Gc(args) => commands::gc(&config, *args),
+        Command::Reaper(args) => reaper::run_installer(args),
         Command::Doctor(args) => Ok(commands::doctor(&config, *args)),
         Command::Rule(args) => rule::run(args),
     }

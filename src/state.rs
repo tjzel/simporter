@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,6 +55,12 @@ pub struct State {
     pub reservations: Vec<Reservation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub heavy: Vec<HeavyJob>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub device_last_held: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub device_first_unleased: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reaped: Vec<ReapedDevice>,
 }
 
 impl Default for State {
@@ -64,6 +70,9 @@ impl Default for State {
             claims: Vec::new(),
             reservations: Vec::new(),
             heavy: Vec::new(),
+            device_last_held: BTreeMap::new(),
+            device_first_unleased: BTreeMap::new(),
+            reaped: Vec::new(),
         }
     }
 }
@@ -71,13 +80,25 @@ impl Default for State {
 impl State {
     pub fn gc(&mut self, now: u64) -> GcReport {
         let mut report = GcReport::default();
+        let mut released = Vec::new();
         self.claims.retain(|claim| match claim.death_reason(now) {
             Some(reason) => {
                 report.dropped_claims.push((claim.id.clone(), reason));
+                if let Some(device) = &claim.device {
+                    let held_until = match reason {
+                        DeathReason::Expired => claim.expires_at.min(now),
+                        DeathReason::OwnerGone => now,
+                    };
+                    released.push((device.id.clone(), held_until));
+                }
                 false
             }
             None => true,
         });
+        for (device_id, held_until) in released {
+            let entry = self.device_last_held.entry(device_id).or_insert(held_until);
+            *entry = (*entry).max(held_until);
+        }
         self.reservations.retain(|reservation| {
             if reservation.expires_at <= now {
                 report.dropped_reservations.push(reservation.name.clone());
@@ -93,6 +114,15 @@ impl State {
             false
         });
         report
+    }
+
+    pub fn note_held_devices(&mut self, now: u64) {
+        for claim in &self.claims {
+            if let Some(device) = &claim.device {
+                self.device_last_held.insert(device.id.clone(), now);
+                self.device_first_unleased.remove(&device.id);
+            }
+        }
     }
 
     pub fn holder_of_device(&self, device_id: &str) -> Option<&Claim> {
@@ -207,6 +237,17 @@ pub struct Reservation {
     pub owner: String,
     pub platform: Platform,
     pub expires_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReapedDevice {
+    pub id: String,
+    pub name: String,
+    pub platform: Platform,
+    pub unleased_since: u64,
+    pub at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

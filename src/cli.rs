@@ -33,8 +33,10 @@ pub enum Command {
     Heavy(HeavyArgs),
     /// Hook for Claude Code: refuse heavy commands not run through `simporter heavy`
     Hook,
-    /// Drop leases whose owner is gone or whose lease expired
+    /// Drop dead leases, and shut down agent devices that run without a lease for too long
     Gc(OutputArgs),
+    /// Install a launchd job that runs `simporter gc` every 5 minutes
+    Reaper(ReaperArgs),
     /// Check that the tooling this depends on is present
     Doctor(OutputArgs),
     /// Print the rule that tells every agent to use simporter, or install it with its skill
@@ -181,6 +183,21 @@ pub struct RunArgs {
     /// Command to run while the lease is held
     #[arg(last = true, required = true)]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ReaperArgs {
+    /// Write the launchd job and load it
+    #[arg(long, conflicts_with = "uninstall")]
+    pub install: bool,
+    /// Unload the launchd job and remove it
+    #[arg(long)]
+    pub uninstall: bool,
+    /// Show what would change, without writing
+    #[arg(long)]
+    pub dry_run: bool,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Debug, Args)]

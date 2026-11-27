@@ -149,4 +149,6 @@ That name is yours alone, so two agents never create the same device. Create it,
 ## Checking
 
 - `simporter status` — every lease, every device, every heavy job, and who holds what
+- An `Agent` device that runs without a lease is shut down 30 minutes after its last lease ended
+  (or after simporter first saw it unleased). Hold a lease for as long as you use a device.
 - `simporter doctor` — confirms simctl, adb, emulator and avdmanager are reachable

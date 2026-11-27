@@ -15,7 +15,8 @@ use crate::heavy;
 use crate::lock::LockGuard;
 use crate::naming;
 use crate::ports;
-use crate::state::{Claim, ClaimedDevice, GcReport, Reservation, State};
+use crate::reaper;
+use crate::state::{Claim, ClaimedDevice, GcReport, ReapedDevice, Reservation, State};
 use crate::{clock, config, state};
 
 pub fn claim(config: &Config, args: &ClaimArgs) -> Result<i32> {
@@ -198,6 +199,7 @@ pub fn device_forget(config: &Config, args: &DeviceForgetArgs) -> Result<i32> {
 
 pub fn gc(config: &Config, args: OutputArgs) -> Result<i32> {
     let (state, report) = with_state_report(config, |state, _| Ok(state.clone()))?;
+    let reaped = reaper::reap(config);
     let dropped: Vec<DroppedClaim> = report
         .dropped_claims
         .iter()
@@ -211,6 +213,8 @@ pub fn gc(config: &Config, args: OutputArgs) -> Result<i32> {
         dropped_claims: &dropped,
         dropped_reservations: &report.dropped_reservations,
         dropped_heavy: &report.dropped_heavy,
+        shut_down: &reaped.shut_down,
+        device_error: reaped.error.as_deref(),
         live_claims: state.claims.len(),
         live_reservations: state.reservations.len(),
     };
@@ -223,6 +227,12 @@ pub fn gc(config: &Config, args: OutputArgs) -> Result<i32> {
         }
         for id in &report.dropped_heavy {
             println!("dropped heavy job {id} (owner process gone)");
+        }
+        for record in &reaped.shut_down {
+            println!("{}", reaper::log_line(record));
+        }
+        if let Some(error) = &reaped.error {
+            println!("device check skipped: {error}");
         }
         println!(
             "{} live leases, {} reservations",
@@ -401,7 +411,9 @@ fn with_state_report<T>(
     let mut current = state::load(&state_path)?;
     let now = clock::now();
     let report = current.gc(now);
+    current.note_held_devices(now);
     let outcome = body(&mut current, now)?;
+    current.note_held_devices(now);
     state::save(&state_path, &current)?;
     Ok((outcome, report))
 }
@@ -553,6 +565,21 @@ fn build_status(config: &Config, state: &State, discovered: &[Device], now: u64)
             held_by: state
                 .holder_of_device(&device.id)
                 .map(|claim| claim.owner.clone()),
+            shutdown_at: shutdown_at(config, state, device).map(clock::rfc3339),
+        })
+        .collect();
+    let reaped = state
+        .reaped
+        .iter()
+        .rev()
+        .take(5)
+        .map(|record| ReapedPayload {
+            id: record.id.clone(),
+            name: record.name.clone(),
+            platform: record.platform,
+            at: clock::rfc3339(record.at),
+            unleased_since: clock::rfc3339(record.unleased_since),
+            error: record.error.clone(),
         })
         .collect();
     let reservations = state
@@ -571,7 +598,17 @@ fn build_status(config: &Config, state: &State, discovered: &[Device], now: u64)
         reservations,
         port_range: format!("{}-{}", config.port_range_start, config.port_range_end),
         heavy: heavy::status_payload(state, config.heavy_slots, now),
+        reaped,
     }
+}
+
+fn shutdown_at(config: &Config, state: &State, device: &Device) -> Option<u64> {
+    let unleased = device.managed && device.running && state.holder_of_device(&device.id).is_none();
+    if !unleased || config.reap_unleased_after_secs == 0 {
+        return None;
+    }
+    reaper::unleased_since(state, &device.id)
+        .map(|since| since.saturating_add(config.reap_unleased_after_secs))
 }
 
 pub fn claim_payload(claim: &Claim, warnings: &[String]) -> ClaimPayload {
@@ -668,14 +705,28 @@ fn print_status(payload: &StatusPayload) {
         );
     }
     heavy::print_status(&payload.heavy);
+    for record in &payload.reaped {
+        let outcome = record.error.as_deref().map_or_else(
+            || "shut down".to_string(),
+            |error| format!("failed to shut down ({error})"),
+        );
+        println!(
+            "reaped {} at {}: {outcome}, no lease since {}",
+            record.name, record.at, record.unleased_since
+        );
+    }
 }
 
 fn print_devices(payload: &StatusPayload) {
     for device in &payload.devices {
         let held = device.held_by.as_deref().unwrap_or("-");
         let running = if device.running { "running" } else { "stopped" };
+        let shutdown = device
+            .shutdown_at
+            .as_deref()
+            .map_or_else(String::new, |at| format!(" (no lease: shut down at {at})"));
         println!(
-            "device {:<9} {:<9} {:<7} held_by={:<12} {}",
+            "device {:<9} {:<9} {:<7} held_by={:<12} {}{shutdown}",
             device.pool, device.platform, running, held, device.name
         );
     }
@@ -774,6 +825,18 @@ struct StatusPayload {
     reservations: Vec<ReservationPayload>,
     port_range: String,
     heavy: heavy::HeavyStatus,
+    reaped: Vec<ReapedPayload>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReapedPayload {
+    id: String,
+    name: String,
+    platform: Platform,
+    at: String,
+    unleased_since: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -785,6 +848,8 @@ struct PoolEntry {
     pool: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     held_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shutdown_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -832,6 +897,9 @@ struct GcPayload<'a> {
     dropped_claims: &'a [DroppedClaim],
     dropped_reservations: &'a [String],
     dropped_heavy: &'a [String],
+    shut_down: &'a [ReapedDevice],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_error: Option<&'a str>,
     live_claims: usize,
     live_reservations: usize,
 }

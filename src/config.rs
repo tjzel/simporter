@@ -17,6 +17,7 @@ pub struct Config {
     pub reservation_ttl_secs: u64,
     pub lock_timeout_secs: u64,
     pub heavy_slots: u32,
+    pub reap_unleased_after_secs: u64,
 }
 
 impl Default for Config {
@@ -32,6 +33,7 @@ impl Default for Config {
             reservation_ttl_secs: 600,
             lock_timeout_secs: 10,
             heavy_slots: 2,
+            reap_unleased_after_secs: 1800,
         }
     }
 }

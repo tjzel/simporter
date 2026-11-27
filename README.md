@@ -144,6 +144,32 @@ agent to rerun it through the queue. Add it to `~/.claude/settings.json` by hand
 The hook reads only the command line. It does not see heavy work inside scripts, for example
 `yarn ios` or `bash -c "..."`.
 
+## Agent devices left running
+
+An agent device that runs without a lease uses CPU for nobody. `simporter gc` shuts it down when
+it has had no lease for `reap_unleased_after_secs` (default 1800, 30 minutes; `0` turns this off).
+Devices without the `Agent` suffix belong to you and are never touched.
+
+- The wait starts when the last lease on the device ended: at its expiry, at its release, or when
+  `gc` finds that its owner process is gone. For a device that was booted without a lease, the
+  wait starts when `simporter gc` first sees it running.
+- A device whose name is reserved for creation is not shut down. A device that stops forgets its
+  history, so the next boot starts a fresh wait.
+- `simporter gc` runs `xcrun simctl shutdown <udid>` or `adb -s <serial> emu kill`, outside the
+  state lock and with a 2 minute timeout. Every `simctl`, `adb` and `emulator` call of simporter
+  stops after 60 seconds, so a hung CoreSimulator cannot hang simporter.
+- Only an explicit `simporter gc` checks devices. The `gc` at the start of every other command
+  stays a state-only clean-up, because device discovery calls `simctl`.
+- `simporter reaper --install` installs a launchd job (`com.github.tjzel.simporter.reaper`) that
+  runs `simporter gc` every 5 minutes, so devices are shut down also when no agent calls
+  simporter. `--dry-run` prints the job, `--uninstall` removes it. Install it from the installed
+  binary: the job runs the binary that installed it.
+
+To see what happened: `simporter status` prints `(no lease: shut down at <time>)` next to each
+running agent device without a lease, and `reaped <name> at <time>` for the last 5 shutdowns.
+`~/.simporter/reaper.log` keeps one line per shutdown, and the launchd job writes its output to
+`~/.simporter/reaper.launchd.log`.
+
 ## Commands
 
 ```
@@ -159,6 +185,7 @@ simporter heavy   [--weight N] [--label <text>] [--owner <id>] [--wait-timeout 1
                   [--json] -- <cmd> ...
 simporter hook
 simporter gc
+simporter reaper  [--install | --uninstall] [--dry-run]
 simporter doctor
 ```
 
@@ -196,7 +223,8 @@ heavy slot.
   "default_ttl_secs": 1800,
   "reservation_ttl_secs": 600,
   "lock_timeout_secs": 10,
-  "heavy_slots": 2
+  "heavy_slots": 2,
+  "reap_unleased_after_secs": 1800
 }
 ```
 

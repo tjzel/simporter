@@ -1,8 +1,10 @@
 pub mod android;
 pub mod ios;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -133,16 +135,53 @@ fn discover_one(config: &Config, platform: Platform) -> Result<Vec<Device>> {
     Ok(devices)
 }
 
+const COMMAND_TIMEOUT: Duration = Duration::from_mins(1);
+
 pub fn run_capture(program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
+    run_capture_within(program, args, COMMAND_TIMEOUT)
+}
+
+pub fn run_capture_within(program: &str, args: &[&str], timeout: Duration) -> Result<String> {
+    let shown = format!("{program} {}", args.join(" "));
+    let mut child = Command::new(program)
         .args(args)
-        .output()
-        .with_context(|| format!("failed to run `{program} {}`", args.join(" ")))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("`{program} {}` failed: {}", args.join(" "), stderr.trim());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run `{shown}`"))?;
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("`{shown}` did not finish within {}s", timeout.as_secs());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
+        bail!("`{shown}` failed: {}", stderr.trim());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(stdout)
+}
+
+fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut pipe) = pipe {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            text = String::from_utf8_lossy(&bytes).into_owned();
+        }
+        text
+    })
 }
 
 #[cfg(test)]
@@ -161,5 +200,19 @@ mod tests {
     fn run_capture_reports_a_failing_command() {
         let error = run_capture("false", &[]).unwrap_err();
         assert!(error.to_string().contains("failed"));
+    }
+
+    #[test]
+    fn run_capture_stops_a_command_that_hangs() {
+        let started = Instant::now();
+        let error = run_capture_within("sleep", &["30"], Duration::from_millis(300)).unwrap_err();
+        assert!(error.to_string().contains("did not finish"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn run_capture_returns_the_output() {
+        let output = run_capture_within("sh", &["-c", "echo hello"], COMMAND_TIMEOUT).unwrap();
+        assert_eq!(output, "hello\n");
     }
 }
