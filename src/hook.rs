@@ -88,7 +88,34 @@ fn segments(command: &str) -> Vec<Vec<String>> {
                     .extend(chars.next().filter(|next| *next != '\n'));
             }
             '#' if !splitter.in_word => while chars.next_if(|next| *next != '\n').is_some() {},
-            ';' | '&' | '|' | '(' | ')' | '\n' => splitter.end_segment(),
+            '>' if chars.peek() == Some(&'&') => {
+                chars.next();
+                splitter.in_word = true;
+                splitter.word.push_str(">&");
+            }
+            '&' if chars.peek() == Some(&'>') => {
+                chars.next();
+                splitter.in_word = true;
+                splitter.word.push_str("&>");
+            }
+            '<' if chars.peek() == Some(&'<') => {
+                chars.next();
+                if chars.next_if_eq(&'<').is_some() {
+                    splitter.end_word();
+                } else {
+                    splitter.end_word();
+                    let strip_tabs = chars.next_if_eq(&'-').is_some();
+                    let delimiter = heredoc_delimiter(&mut chars);
+                    splitter.heredocs.push((delimiter, strip_tabs));
+                }
+            }
+            '\n' => {
+                splitter.end_segment();
+                for (delimiter, strip_tabs) in std::mem::take(&mut splitter.heredocs) {
+                    skip_heredoc_body(&mut chars, &delimiter, strip_tabs);
+                }
+            }
+            ';' | '&' | '|' | '(' | ')' => splitter.end_segment(),
             c if c.is_whitespace() => splitter.end_word(),
             c => {
                 splitter.in_word = true;
@@ -98,6 +125,50 @@ fn segments(command: &str) -> Vec<Vec<String>> {
     }
     splitter.end_segment();
     splitter.segments
+}
+
+fn heredoc_delimiter(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    while chars
+        .next_if(|next| *next == ' ' || *next == '\t')
+        .is_some()
+    {}
+    let mut delimiter = String::new();
+    while let Some(&next) = chars.peek() {
+        if next.is_whitespace() || matches!(next, ';' | '&' | '|' | '(' | ')' | '<' | '>') {
+            break;
+        }
+        chars.next();
+        if next != '\'' && next != '"' && next != '\\' {
+            delimiter.push(next);
+        }
+    }
+    delimiter
+}
+
+fn skip_heredoc_body(
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+    delimiter: &str,
+    strip_tabs: bool,
+) {
+    loop {
+        let mut line = String::new();
+        let mut ended = true;
+        for next in chars.by_ref() {
+            if next == '\n' {
+                ended = false;
+                break;
+            }
+            line.push(next);
+        }
+        let line = if strip_tabs {
+            line.trim_start_matches('\t')
+        } else {
+            &line
+        };
+        if line == delimiter || ended {
+            return;
+        }
+    }
 }
 
 fn strip_prefix(words: &[String]) -> &[String] {
@@ -181,6 +252,7 @@ struct Splitter {
     words: Vec<String>,
     word: String,
     in_word: bool,
+    heredocs: Vec<(String, bool)>,
 }
 
 impl Splitter {
@@ -299,6 +371,44 @@ mod tests {
     #[test]
     fn the_reason_suggests_the_wrapped_command() {
         assert!(reason("pod install").contains("`simporter heavy -- pod install`"));
+    }
+
+    #[test]
+    fn a_stderr_redirect_stays_in_its_segment() {
+        assert_eq!(
+            flagged("cargo build 2>&1 | grep error").unwrap(),
+            "cargo build 2>&1"
+        );
+        assert_eq!(
+            flagged("cargo build &>build.log").unwrap(),
+            "cargo build &>build.log"
+        );
+        assert!(reason("cargo build 2>&1").contains("`simporter heavy -- cargo build 2>&1`"));
+        assert_eq!(flagged("echo hi 2>&1"), None);
+    }
+
+    #[test]
+    fn a_heredoc_body_is_not_a_command() {
+        for command in [
+            "python3 - <<'EOF'\nimport subprocess\nxcrun simctl boot ABC\nEOF",
+            "cat <<EOF > notes.md\ncargo build --release\nEOF\necho done",
+            "cat <<-\"END\"\n\txcodebuild build\n\tEND",
+            "sh <<A <<B\npod install\nA\n./gradlew assemble\nB",
+        ] {
+            assert_eq!(flagged(command), None, "{command:?} was flagged");
+        }
+    }
+
+    #[test]
+    fn a_command_after_a_heredoc_is_still_checked() {
+        assert_eq!(
+            flagged("cat <<EOF > a.txt\nhello\nEOF\ncargo test").unwrap(),
+            "cargo test"
+        );
+        assert_eq!(
+            flagged("grep x <<< 'cargo build'; xcodebuild build").unwrap(),
+            "xcodebuild build"
+        );
     }
 
     #[test]
